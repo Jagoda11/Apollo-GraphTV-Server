@@ -1,0 +1,135 @@
+name: 🤖 GitHub Copilot Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  copilot-review:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 🛠️ Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔍 Get PR details
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request?.number || context.payload.inputs?.pr_number;
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            core.setOutput('pr_number', prNumber);
+            core.setOutput('pr_title', pr.title);
+            core.setOutput('pr_body', pr.body || '');
+            core.setOutput('files_changed', files.length);
+            
+            return { pr, files };
+
+      - name: 🤖 Post Code Review Summary
+        uses: actions/github-script@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          script: |
+            const prNumber = ${{ steps.pr.outputs.pr_number }};
+            const filesChanged = ${{ steps.pr.outputs.files_changed }};
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `## 🤖 Automated Code Review\n\nI've analyzed this PR with ${filesChanged} file(s) changed.\n\n### Quick Summary:\n- ✅ Review the changes below\n- ⚠️ Pay attention to security and error handling\n- 🧪 Ensure tests are included\n- 📚 Update documentation if needed\n\n---\n\n*This is an automated review. Please verify all suggestions manually.*`
+            });
+
+      - name: 🔍 Security & Quality Checks
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ steps.pr.outputs.pr_number }};
+            
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            const issues = [];
+            
+            for (const file of files) {
+              if (!file.patch) continue;
+              
+              const patch = file.patch;
+              
+              // Check for common issues
+              if (patch.includes('console.log')) {
+                issues.push(`⚠️ \`${file.filename}\`: Contains console.log statements`);
+              }
+              if (patch.includes('TODO') || patch.includes('FIXME')) {
+                issues.push(`📝 \`${file.filename}\`: Contains TODO/FIXME comments`);
+              }
+              if (patch.includes('any') && file.filename.endsWith('.ts')) {
+                issues.push(`🔍 \`${file.filename}\`: Uses 'any' type - consider more specific types`);
+              }
+              if (patch.includes('require(') && file.filename.endsWith('.ts')) {
+                issues.push(`⚠️ \`${file.filename}\`: Uses require() - should use ESM imports`);
+              }
+              if (!files.some(f => f.filename.includes('.spec.') || f.filename.includes('.test.'))) {
+                if (file.filename.endsWith('.ts') && !file.filename.includes('.spec.') && !file.filename.includes('.test.')) {
+                  issues.push(`🧪 No test file found for \`${file.filename}\``);
+                }
+              }
+            }
+            
+            if (issues.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: `## 🔍 Code Quality Review\n\n${issues.map(i => `- ${i}`).join('\n')}\n\n---\n*Automated analysis - please review and address if applicable.*`
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: `## ✅ Code Quality Check\n\nNo common issues detected! The code looks good. 🎉\n\n---\n*Automated analysis completed.*`
+              });
+            }
+
+      - name: 📊 Add Review Labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ steps.pr.outputs.pr_number }};
+            
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: ['🤖 auto-reviewed']
+            });

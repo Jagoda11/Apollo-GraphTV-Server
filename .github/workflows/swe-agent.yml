@@ -1,0 +1,86 @@
+name: 🤖 SWE-agent Auto-fix
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to fix'
+        required: true
+        type: number
+
+jobs:
+  swe-agent-fix:
+    # Only run if issue has 'swe-agent' label or comment contains '/swe-agent'
+    if: |
+      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'swe-agent')) ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/swe-agent')) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: 🛠️ Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 🤖 Run SWE-agent
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          # Install SWE-agent
+          pip install sweagent
+          
+          # Get issue number
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            ISSUE_NUM=${{ github.event.inputs.issue_number }}
+          elif [ "${{ github.event_name }}" == "issue_comment" ]; then
+            ISSUE_NUM=${{ github.event.issue.number }}
+          else
+            ISSUE_NUM=${{ github.event.issue.number }}
+          fi
+          
+          # Run SWE-agent on the issue
+          sweagent run \
+            --repo ${{ github.repository }} \
+            --issue-number $ISSUE_NUM \
+            --model gpt-4 \
+            --github-token $GITHUB_TOKEN
+
+      - name: 📝 Comment on issue
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = context.payload.issue?.number || context.payload.inputs?.issue_number;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: '✅ SWE-agent has attempted to fix this issue. Please review the pull request created.'
+            });
+
+      - name: ❌ Comment on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = context.payload.issue?.number || context.payload.inputs?.issue_number;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: '❌ SWE-agent encountered an error while trying to fix this issue. Please check the workflow logs.'
+            });
