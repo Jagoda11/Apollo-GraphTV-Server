@@ -23,7 +23,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@apollo/server": "^5.2.0",
+    "@apollo/server": "^5.3.0",
     "aws-sdk": "^2.1693.0",
     "graphql": "^16.12.0",
     "graphql-request": "^7.4.0",
@@ -31,7 +31,7 @@
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "@types/node": "^25.0.9",
+    "@types/node": "^25.0.10",
     "jest": "^30.2.0",
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
