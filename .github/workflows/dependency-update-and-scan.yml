@@ -25,7 +25,7 @@ jobs:
         run: npm install -g npm-check-updates
 
       - name: ⬆️ Update dependencies in package.json
-        run: ncu -u
+        run: ncu -u --target minor
 
       - name: 📦 Install dependencies
         run: npm install
